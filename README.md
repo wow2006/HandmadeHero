@@ -1,4 +1,3 @@
-### Handemade hero in linux
+### Handemade hero in Windows
 
-I am having fun watching handmade hero and exporting Win32 to SDL2
-
+I am having fun watching handmade hero
