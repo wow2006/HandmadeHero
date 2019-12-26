@@ -1,2 +1,2 @@
 @echo off
-"C:\Program Files\Neovim\bin\nvim-qt.exe" w:\HandMadeHero\src\code\
+"C:\Program Files\Neovim\bin\nvim.exe" w:\HandMadeHero\src\code\
