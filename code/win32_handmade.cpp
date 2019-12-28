@@ -43,6 +43,7 @@ struct win32_window_dimension {
 // TODO(Hussein): This is global for now
 global_variable bool GlobalRunning;
 global_variable win32_offscreen_buffer GlobalBackBuffer;
+global_variable LPDIRECTSOUNDBUFFER GlobalSecondaryBuffer;
 
 // NOTE(Hussein): XInputGetState
 #define X_INPUT_GET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE *pState)
@@ -133,20 +134,18 @@ Win32InitDSound(HWND Window, int32 SamplesPerSecond, int32 BufferSize) {
         // TODO(Hussein): Diagnostic
       }
 
+      // TODO(Hussein): DSBCAPS_GETCURRENTPOSITION2
       DSBUFFERDESC BufferDescription = {};
       BufferDescription.dwSize = sizeof(BufferDescription);
       BufferDescription.dwFlags = 0;
       BufferDescription.dwBufferBytes = BufferSize;
       BufferDescription.lpwfxFormat = &WaveFormat;
-      LPDIRECTSOUNDBUFFER SecondaryBuffer;
-      HRESULT Error = DirectSound->CreateSoundBuffer(&BufferDescription, &SecondaryBuffer, 0);
+      HRESULT Error = DirectSound->CreateSoundBuffer(&BufferDescription, &GlobalSecondaryBuffer, 0);
       if(SUCCEEDED(Error)) {
         OutputDebugStringA("Secondary buffer created successfully.\n");
+      } else {
+        exit(0);
       }
-      // Note(Hussein): "Create" a secondary buffer
-      BufferDescription.dwBufferBytes = BufferSize;
-
-      // Note(Hussein): Start it playing!
     } else {
       // TODO(Hussein): Diagnostic
     }
@@ -334,93 +333,148 @@ WinMain(HINSTANCE hInstance,
   WindowClass.lpszClassName = "HandmadeHeroWindowClass";
 
   if(RegisterClass(&WindowClass)) {
-      HWND Window = CreateWindowEx(
-              0,
-              WindowClass.lpszClassName,
-              "Handmade Hero",
-              WS_OVERLAPPEDWINDOW|WS_VISIBLE,
-              CW_USEDEFAULT,
-              CW_USEDEFAULT,
-              CW_USEDEFAULT,
-              CW_USEDEFAULT,
-              0,
-              0,
-              hInstance,
-              0);
-      if(Window) {
-        // NOTE(Hussein): Since we specified CS_OWNDC, we can just
-        // get one device context and use it forever because we
-        // are not sharing it with anyone.
-        HDC DeviceContext = GetDC(Window);
+    HWND Window = CreateWindowEx(
+            0,
+            WindowClass.lpszClassName,
+            "Handmade Hero",
+            WS_OVERLAPPEDWINDOW|WS_VISIBLE,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            0,
+            0,
+            hInstance,
+            0);
+    if(Window) {
+      // NOTE(Hussein): Since we specified CS_OWNDC, we can just
+      // get one device context and use it forever because we
+      // are not sharing it with anyone.
+      HDC DeviceContext = GetDC(Window);
 
-        int XOffset = 0;
-        int YOffset = 0;
+      // NOTE(Hussein): Graphics test
+      int XOffset = 0;
+      int YOffset = 0;
 
-        Win32InitDSound(Window, 40000, 40000*sizeof(int16)*2);
+      // NOTE(Hussein): Sound test
+      int    SamplesPerSecond     = 48000;
+      int    ToneHz               = 256;
+      int16  ToneVolume           = 3000;
+      uint32 RunningSampleIndex   = 0;
+      int    SquareWavePeriod     = SamplesPerSecond/ToneHz;
+      int    HalfSquareWavePeriod = SquareWavePeriod/2;
+      int    BytesPerSample       = sizeof(int16)*2;
+      int    SecondaryBufferSize  = SamplesPerSecond*BytesPerSample;
 
-        GlobalRunning = true;
-        while(GlobalRunning) {
-          MSG Message;
+      Win32InitDSound(Window, SamplesPerSecond, SecondaryBufferSize);
+      GlobalSecondaryBuffer->Play(0, 0, DSBPLAY_LOOPING);
 
-          while(PeekMessage(&Message, 0, 0, 0, PM_REMOVE)) {
-            if(Message.message == WM_QUIT) {
-              GlobalRunning = false;
-            }
+      GlobalRunning = true;
+      while(GlobalRunning) {
+        MSG Message;
 
-            TranslateMessage(&Message);
-            DispatchMessage(&Message);
+        while(PeekMessage(&Message, 0, 0, 0, PM_REMOVE)) {
+          if(Message.message == WM_QUIT) {
+            GlobalRunning = false;
           }
 
-          // TODO(Hussein): Should we poll this more frequently?
-          for(DWORD ControllerIndex = 0;
-              ControllerIndex < XUSER_MAX_COUNT;
-              ++ControllerIndex) {
-            XINPUT_STATE ControllerState;
-            if(XInputGetState(ControllerIndex, &ControllerState) == ERROR_SUCCESS) {
-              // NOTE(Hussein): This controller is plugged in
-              // TODO(Hussein): See if ControllerState.dwPacketNumber increments too rapidly
-              XINPUT_GAMEPAD *Pad = &ControllerState.Gamepad;
-
-              bool Up            = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_UP);
-              bool Down          = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN);
-              bool Left          = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_LEFT);
-              bool Right         = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_RIGHT);
-              bool Start         = (Pad->wButtons & XINPUT_GAMEPAD_START);
-              bool Back          = (Pad->wButtons & XINPUT_GAMEPAD_BACK);
-              bool LeftShoulder  = (Pad->wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER);
-              bool RightShoulder = (Pad->wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER);
-              bool AButton       = (Pad->wButtons & XINPUT_GAMEPAD_A);
-              bool BButton       = (Pad->wButtons & XINPUT_GAMEPAD_B);
-              bool XButton       = (Pad->wButtons & XINPUT_GAMEPAD_X);
-              bool YButton       = (Pad->wButtons & XINPUT_GAMEPAD_Y);
-
-              int16 StickX = Pad->sThumbLX;
-              int16 StickY = Pad->sThumbLY;
-
-              if(AButton) {
-                YOffset += 2;
-              }
-            } else {
-              // NOTE(Hussein): This controller is not available
-            }
-          }
-
-          XINPUT_VIBRATION Vibration;
-          Vibration.wLeftMotorSpeed = 60000;
-          Vibration.wRightMotorSpeed = 60000;
-          XInputSetState(0, &Vibration);
-
-          RenderWeirdGradient(&GlobalBackBuffer, XOffset, YOffset);
-
-          win32_window_dimension Dimension = Win32GetWindowDimension(Window);
-          Win32DisplayBufferInWindow(&GlobalBackBuffer, DeviceContext, Dimension.Width, Dimension.Height);
-
-          ++XOffset;
+          TranslateMessage(&Message);
+          DispatchMessage(&Message);
         }
 
-      } else {
-          // TODO(Hussein): Logging
+        // TODO(Hussein): Should we poll this more frequently?
+        for(DWORD ControllerIndex = 0;
+            ControllerIndex < XUSER_MAX_COUNT;
+            ++ControllerIndex) {
+          XINPUT_STATE ControllerState;
+          if(XInputGetState(ControllerIndex, &ControllerState) == ERROR_SUCCESS) {
+            // NOTE(Hussein): This controller is plugged in
+            // TODO(Hussein): See if ControllerState.dwPacketNumber increments too rapidly
+            XINPUT_GAMEPAD *Pad = &ControllerState.Gamepad;
+
+            bool Up            = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_UP);
+            bool Down          = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN);
+            bool Left          = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_LEFT);
+            bool Right         = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_RIGHT);
+            bool Start         = (Pad->wButtons & XINPUT_GAMEPAD_START);
+            bool Back          = (Pad->wButtons & XINPUT_GAMEPAD_BACK);
+            bool LeftShoulder  = (Pad->wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER);
+            bool RightShoulder = (Pad->wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER);
+            bool AButton       = (Pad->wButtons & XINPUT_GAMEPAD_A);
+            bool BButton       = (Pad->wButtons & XINPUT_GAMEPAD_B);
+            bool XButton       = (Pad->wButtons & XINPUT_GAMEPAD_X);
+            bool YButton       = (Pad->wButtons & XINPUT_GAMEPAD_Y);
+
+            int16 StickX = Pad->sThumbLX;
+            int16 StickY = Pad->sThumbLY;
+
+            XOffset += StickX >> 12;
+            YOffset += StickX >> 12;
+          } else {
+            // NOTE(Hussein): This controller is not available
+          }
+        }
+
+        RenderWeirdGradient(&GlobalBackBuffer, XOffset, YOffset);
+
+        // NOTE(Hussein): DirectSound output test
+        DWORD PlayerCursor;
+        DWORD WriteCursor;
+        if(SUCCEEDED(GlobalSecondaryBuffer->GetCurrentPosition(&PlayerCursor, &WriteCursor))) {
+          DWORD ByteToLock = RunningSampleIndex*BytesPerSample % SecondaryBufferSize;
+          DWORD BytesToWrite;
+          if(ByteToLock > PlayerCursor) {
+            BytesToWrite = (SecondaryBufferSize - ByteToLock);
+            BytesToWrite += PlayerCursor;
+          } else {
+            BytesToWrite = PlayerCursor - ByteToLock;
+          }
+
+          // TODO(Hussein): More strenuous test
+          VOID *Region1;
+          DWORD Region1Size;
+          VOID *Region2;
+          DWORD Region2Size;
+          if(SUCCEEDED(GlobalSecondaryBuffer->Lock(ByteToLock, BytesToWrite,
+                                                   &Region1, &Region1Size,
+                                                   &Region2, &Region2Size,
+                                                   0))) {
+            // TODO(Hussein): assert that Region1Size/Region2Size is valid
+
+            // TODO(Hussein): Collapse these two loops
+            DWORD Region1SampleCount = Region1Size/BytesPerSample;
+            int16 *SampleOut = (int16 *)Region1;
+            for(DWORD SampleIndex = 0;
+                SampleIndex < Region1SampleCount;
+                ++SampleIndex) {
+              int16 SampleValue = ((RunningSampleIndex++ / HalfSquareWavePeriod) % 2) ? ToneVolume : -ToneVolume;
+              *SampleOut++ = SampleValue;
+              *SampleOut++ = SampleValue;
+            }
+
+            DWORD Region2SampleCount = Region2Size/BytesPerSample;
+            SampleOut = (int16 *)Region2;
+            for(DWORD SampleIndex = 0;
+                SampleIndex < Region2SampleCount;
+                ++SampleIndex) {
+              int16 SampleValue = ((RunningSampleIndex++ / HalfSquareWavePeriod) % 2) ? ToneVolume : -ToneVolume;
+              *SampleOut++ = SampleValue;
+              *SampleOut++ = SampleValue;
+            }
+          }
+
+          GlobalSecondaryBuffer->Unlock(Region1, Region1Size,
+                                        Region2, Region2Size);
+        }
+
+
+        win32_window_dimension Dimension = Win32GetWindowDimension(Window);
+        Win32DisplayBufferInWindow(&GlobalBackBuffer, DeviceContext, Dimension.Width, Dimension.Height);
       }
+
+    } else {
+        // TODO(Hussein): Logging
+    }
   } else {
       // TODO(Hussein): Logging
   }
