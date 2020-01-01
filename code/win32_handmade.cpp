@@ -7,6 +7,7 @@
  */
 #include <windows.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <xinput.h>
 #include <stdio.h>
 #include <dsound.h>
@@ -388,6 +389,10 @@ WinMain(HINSTANCE hInstance,
         HINSTANCE hPrevInstance,
         LPSTR lpCmdLine,
         int nCmdShow) {
+  LARGE_INTEGER PerfCounterFrequencyResult;
+  QueryPerformanceFrequency(&PerfCounterFrequencyResult);
+  int64 PerfCounterFrequency = PerfCounterFrequencyResult.QuadPart;
+
   Win32LoadXInput();
 
   WNDCLASSA WindowClass = {};
@@ -437,6 +442,10 @@ WinMain(HINSTANCE hInstance,
       GlobalSecondaryBuffer->Play(0, 0, DSBPLAY_LOOPING);
 
       GlobalRunning = true;
+
+      LARGE_INTEGER LastCounter;
+      QueryPerformanceCounter(&LastCounter);
+      uint64 LastCycleCount = __rdtsc();
       while(GlobalRunning) {
         MSG Message;
 
@@ -506,6 +515,25 @@ WinMain(HINSTANCE hInstance,
 
         win32_window_dimension Dimension = Win32GetWindowDimension(Window);
         Win32DisplayBufferInWindow(&GlobalBackBuffer, DeviceContext, Dimension.Width, Dimension.Height);
+
+        LARGE_INTEGER EndCounter;
+        QueryPerformanceCounter(&EndCounter);
+
+        uint64 EndCycleCount = __rdtsc();
+
+        // TODO(Hussein): Display the value here
+        uint64 CyclesElapsed  = EndCycleCount - LastCycleCount;
+        int64 CounterElapsed = EndCounter.QuadPart - LastCounter.QuadPart;
+        real32 MSPerFrame    = (((1000.F*(real32)CounterElapsed) / (real32)PerfCounterFrequency));
+        real32 FPS           = (real32)PerfCounterFrequency / (real32)CounterElapsed;
+        real32 MCPF          = ((real32)CyclesElapsed / (1000.F * 1000.F));
+
+        char Buffer[256];
+        sprintf(Buffer, "%.02fms/f, %.02ff/s, %.02fmc/f\n", MSPerFrame, FPS, MCPF);
+        OutputDebugStringA(Buffer);
+
+        LastCounter    = EndCounter;
+        LastCycleCount = EndCycleCount;
       }
 
     } else {
